@@ -48,7 +48,7 @@ docker run --rm -it --gpus all \
   --user root \
   maxtoki-dev \
   bash -c "usermod -u $(id -u) ubuntu && groupmod -g $(id -g) ubuntu && \
-           su - ubuntu -c 'cd /workspaces/bionemo-framework-private && \
+           su - ubuntu -c 'cd /workspaces/maxToki && \
            source .devcontainer/postCreateCommand.sh && exec bash'"
 ```
 

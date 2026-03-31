@@ -7,7 +7,7 @@ cd $REPOSITORY_ROOT
 
 echo "Running ruff checks"
 set +e
-ruff check scripts/ sub-packages/ docs/
+ruff check scripts/ sub-packages/
 E_RUFF_CHECK="$?"
 set -e
 

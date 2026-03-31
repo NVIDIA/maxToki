@@ -232,7 +232,6 @@ RUN mkdir -p /workspace/bionemo2/.cache/
 COPY VERSION .
 COPY ./README.md ./
 COPY ./ci/scripts ./ci/scripts
-COPY ./docs ./docs
 
 # Fix a CRIT vuln: https://github.com/advisories/GHSA-vqfr-h8mv-ghfj
 RUN uv pip install h11==0.16.0

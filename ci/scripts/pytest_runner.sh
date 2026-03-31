@@ -25,7 +25,6 @@ usage() {
 Usage: $(basename "$0") [OPTIONS]
 
 Options:
-    --skip-docs         Skip running tests in the docs directory
     --no-nbval          Skip jupyter notebook validation tests
     --skip-slow         Skip tests marked as slow (@pytest.mark.slow)
     --only-slow         Only run tests marked as slow (@pytest.mark.slow)
@@ -33,9 +32,6 @@ Options:
     --ignore-files      Skip files from tests using glob patterns (comma-separated, no spaces).
                             Example: --ignore-files docs/*.ipynb,src/specific_test.py
 
-Note: Documentation tests (docs/) are only run when notebook validation
-      is enabled (--no-nbval not set) and docs are not skipped
-      (--skip-docs not set)
     -h, --help     Display this help message
 EOF
     exit "${1:-0}"
@@ -51,7 +47,6 @@ export BIONEMO_DATA_SOURCE PYTHONDONTWRITEBYTECODE PYTORCH_CUDA_ALLOC_CONF
 
 # Initialize variables
 declare -a coverage_files
-SKIP_DOCS=false
 NO_NBVAL=false
 SKIP_SLOW=false
 ONLY_SLOW=false
@@ -63,7 +58,6 @@ error=false
 # Parse command line arguments
 while (( $# > 0 )); do
     case "$1" in
-        --skip-docs) SKIP_DOCS=true ;;
         --no-nbval) NO_NBVAL=true ;;
         --skip-slow) SKIP_SLOW=true ;;
         --only-slow) ONLY_SLOW=true ;;
@@ -100,9 +94,6 @@ done
 
 # Define test directories
 TEST_DIRS=(./sub-packages/bionemo-*/)
-if [[ "$NO_NBVAL" != true && "$SKIP_DOCS" != true ]]; then
-    TEST_DIRS+=(docs/)
-fi
 
 echo "Test directories: ${TEST_DIRS[*]}"
 
