@@ -36,12 +36,24 @@ DOCKER_BUILDKIT=1 docker build --target dev -t maxtoki-dev -f Dockerfile .
 
 ### Launch the container
 
-(!! NOTE can we expand and keep from using internal scripts here? )
 ```bash
-./internal/scripts/run_dev.sh
+docker run --rm -it --gpus all \
+  --network host \
+  --shm-size=4g \
+  -e TMPDIR=/tmp \
+  -e NUMBA_CACHE_DIR=/tmp/ \
+  -w /workspaces/maxToki \
+  -v "$(pwd)":/workspaces/maxToki \
+  -v "$HOME/.cache":/home/ubuntu/.cache \
+  --user root \
+  maxtoki-dev \
+  bash -c "usermod -u $(id -u) ubuntu && groupmod -g $(id -g) ubuntu && \
+           su - ubuntu -c 'cd /workspaces/bionemo-framework-private && \
+           source .devcontainer/postCreateCommand.sh && exec bash'"
 ```
 
-This builds the image if not cached, then opens a bash shell with the repo mounted at `/workspaces/bionemo-framework-private`. Force a rebuild with `REBUILD=1`.
+This opens a bash shell with the repo mounted at `/workspaces/maxToki` and all bionemo/NeMo sub-packages installed in editable mode. Optionally add `-v /data:/home/ubuntu/data` if you have a local `/data` directory, and pass `-e WANDB_API_KEY=...` for experiment tracking.
+
 
 ## Repository Structure
 
