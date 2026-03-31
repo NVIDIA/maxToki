@@ -1,0 +1,34 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v2.3.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+        exclude: "mkdocs.yml"
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.10
+    hooks:
+      - id: ruff
+        # 1. Attempt to automatically fix any lint issues.
+        args: ["--fix"]
+      - id: ruff-format
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        name: detect-secrets (everything but notebooks)
+        args: ['--baseline', '.secrets.baseline', '--exclude-files', '(.*\.ipynb|.*\.baseline)$', ]
+        exclude: package.lock.json
+      - id: detect-secrets
+        name: detect-secrets (notebooks only)
+        args: ['--baseline', '.secrets-nb.baseline', '--exclude-files', '^.(?!.*\.ipynb)', '--exclude-lines', '"(hash|id|image/\w+)":.*|<.*at 0x[0-9a-f]+>|object at 0x[0-9a-f]+', ]
+  - repo: local
+    hooks:
+      - id: license-header-check
+        name: Run license-check script
+        entry: python internal/infra-bionemo/src/infra_bionemo/license_check.py -c scripts -c sub-packages -c docs -c internal --license-header ./license_header --modify
+        language: python
+        additional_dependencies: ["click==8.1.7"]
+        pass_filenames: false
+        always_run: true

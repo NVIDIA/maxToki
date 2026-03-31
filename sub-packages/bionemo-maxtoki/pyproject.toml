@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bionemo-maxtoki"
+readme = "README.md"
+description = "MaxToki: Single-cell gene expression model built on BioNeMo Framework."
+authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dynamic = ["version"]
+dependencies = [
+    # bionemo sub-packages
+    'bionemo-core',
+    'bionemo-llm',
+]
+
+[project.optional-dependencies]
+test = [
+    'bionemo-testing'
+]
+te = [
+    # TE & Apex need to be installed after PyTorch, NVCC, and CUDA.
+    'transformer_engine[pytorch]'
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["bionemo.*"]
+namespaces = true
+exclude = ["test*."]
+
+[tool.setuptools.dynamic]
+version = { file = "VERSION" }
+
+[tool.uv]
+cache-keys = [{ git = true }]

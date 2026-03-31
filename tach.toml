@@ -1,0 +1,40 @@
+interfaces = []
+exclude = [
+    "**/*__pycache__",
+    "**/*egg-info",
+    "LICENSE",
+    "build",
+    "docs",
+    "tests",
+    "venv",
+]
+source_roots = [
+    "sub-packages/bionemo-core/src",
+    "sub-packages/bionemo-maxtoki/src",
+    "sub-packages/bionemo-llm/src",
+    "sub-packages/bionemo-testing/src",
+]
+
+[[modules]]
+path = "bionemo.core"
+depends_on = []
+
+[[modules]]
+path = "bionemo.maxtoki"
+depends_on = [
+    "bionemo.core",
+    "bionemo.llm",
+]
+
+[[modules]]
+path = "bionemo.llm"
+depends_on = [
+    "bionemo.core",
+]
+
+[[modules]]
+path = "bionemo.testing"
+depends_on = [
+    "bionemo.core",
+    "bionemo.llm",
+]

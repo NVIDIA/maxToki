@@ -1,0 +1,120 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# We can likely clean up the meta-package once https://github.com/astral-sh/uv/issues/6935 has a resolution.
+[project]
+name = "maxtoki"
+readme = "README.md"
+description = "MaxToki: Single-cell gene expression model built on BioNeMo Framework."
+authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
+requires-python = ">=3.10"
+classifiers = ["Private :: Do Not Upload", "Programming Language :: Python :: 3.10"]
+license = { file = "LICENSE/license.txt" }
+version = "2.0.0"
+dependencies = [
+    'bionemo-core',
+    'bionemo-maxtoki',
+    'bionemo-llm',
+    # external
+    'nemo_run',
+    'torch==2.3.*',
+    # internal code
+    "infra-bionemo",
+]
+
+[project.optional-dependencies]
+build = ['flash-attn', 'pip']
+
+[tool.uv.workspace]
+members = ["3rdparty/*", "internal/infra-bionemo/", "sub-packages/bionemo-core", "sub-packages/bionemo-llm", "sub-packages/bionemo-maxtoki", "sub-packages/bionemo-testing"]
+
+[tool.uv.sources]
+# external
+nemo_run = { git = "https://github.com/NVIDIA/NeMo-Run", rev = "34259bd3e752fef94045a9a019e4aaf62bd11ce2" }
+# under 3rdparty/
+nemo_toolkit = { workspace = true }
+megatron-core = { workspace = true }
+# in sub-packages/
+bionemo-core = { workspace = true }
+bionemo-maxtoki = { workspace = true }
+bionemo-llm = { workspace = true }
+bionemo-testing = { workspace = true }
+# in internal/
+infra-bionemo = { workspace = true }
+
+[tool.uv]
+dev-dependencies = [
+    "click",
+    "ipdb",
+    "nbval",
+    "pre-commit",
+    "pyright",
+    "ruff",
+    "tach",
+    "tenacity",
+]
+no-build-isolation-package = ["flash-attn"]
+cache-keys = [{ git = { commit = true } }]
+
+[tool.black]
+line-length = 119
+target-version = ['py310']
+skip-string-normalization = true
+
+[tool.ruff]
+line-length = 119
+
+[tool.ruff.lint]
+ignore = ["C901", "D100", "E501", "E741", "RUF005", "RUF010"]
+select = [
+    "C",   # Pylint conventions
+    "D",   # Documentation formatting
+    "E",   # style stuff, whitespaces
+    "F",   # important pyflakes lints
+    "I",   # import sorting
+    "RUF", # Some Ruff-specific lints, unused noqas, etc.
+    "W",   # Pylint warnings
+]
+
+# Ignore import violations in all `__init__.py` files.
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["D104", "E402", "F401", "F403", "F811"]
+"test_*.py" = ["D"]
+"conftest.py" = ["D"]
+"scripts/*.py" = ["D"]
+"**/*.ipynb" = ["D"]
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2
+known-first-party = ["bionemo", "infra_bionemo"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pytest.ini_options]
+xfail_strict = true
+norecursedirs = ["3rdparty"]
+addopts = [
+    "--durations-min=30.0",
+    "--durations=0",
+    "--ignore=3rdparty",
+]
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
+
+[tool.pyright]
+include = ["./internal/", "./scripts/", "./sub-packages/"]
+exclude = ["*/tests/"]
+executionEnvironments = [
+    { "root" = ".", pythonVersion = "3.10", extraPaths = [
+        # 3rd party, git submodules
+        "./3rdparty/Megatron-LM",
+        "./3rdparty/NeMo",
+        # bionemo sub-packages
+        './sub-packages/bionemo-core/src',
+        './sub-packages/bionemo-maxtoki/src',
+        './sub-packages/bionemo-llm/src',
+        # internal
+        './internal/infra-bionemo/src',
+    ] },
+]
