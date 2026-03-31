@@ -71,7 +71,6 @@ Key classes:
 | `MaxTokiMultitaskFineTuneConfig` | `model.py` | Temporal training config; attaches regression head and a custom multitask loss |
 | `MaxTokiLossWithReduction` | `model.py` | Mixed CE + MSE loss with per-task masking |
 | `MaxTokiTokenizer` | `tokenizer.py` | Wraps the gene token dictionary; handles special tokens and loss mask generation. Generally the tokenizer is a pass-through, rank value encoded token IDs are expected as inputs. |
-(!! what about collation?)
 | `MaxTokiDataModule` | `datamodule.py` | Lightning DataModule for single-cell datasets that may include time tokens. |
 | `FinetuneLlamaModel` | `model.py` | MCoreGPTModel subclass with the regression head attached |
 
