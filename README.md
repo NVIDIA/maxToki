@@ -18,11 +18,11 @@ TransformerEngine requires CUDA. The model cannot run on CPU. A single A100 or H
 
 ## Setup
 
-All dependencies (NeMo, Megatron-LM, TransformerEngine, Apex) are pinned in the container. Running outside the container is not supported.
+All dependencies (NeMo via PyPI, Megatron-LM, TransformerEngine, Apex) are pinned in the container. Running outside the container is not supported.
 
 ### Clone with submodules
 
-NeMo and Megatron-LM are git submodules; initialize them with:
+Megatron-LM is a git submodule; initialize it with:
 
 ```bash
 git submodule update --init --recursive
@@ -66,8 +66,7 @@ sub-packages/
   bionemo-core/        # Core utilities from bionemo-framework
   bionemo-testing/     # General purpose test helpers
 3rdparty/
-  NeMo/                # Pinned NeMo submodule
-  Megatron-LM/         # Pinned Megatron-LM submodule
+  Megatron-LM/         # Pinned Megatron-LM submodule (NeMo is installed from PyPI)
 ```
 
 ## Architecture
