@@ -13,12 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import subprocess
+import sys
+
 import torch
 import pytest
 
 from bionemo.testing.subprocess_utils import run_command_in_subprocess
 
 from .conftest import PRETRAIN_DATA_PATH, PRETRAIN_TOKENIZER_PATH, FINETUNE_DATA_PATH, FINETUNE_TOKENIZER_PATH
+
+
+# Real checkpoints from the HF→NeMo conversion + subsequent finetune.
+# Tests using these paths are skipped if the files are not present.
+_CONVERTED_CKPT = "/workspaces/bionemo-framework-private/results/hf-weight-conversion/dev/checkpoints/epoch=0-val_loss=0.00-step=0-consumed_samples=0-last-v3"
+_FINETUNED_CKPT = "/workspaces/bionemo-framework-private/results/finetune-hfconv/maxtoki/dev/checkpoints/epoch=0-val_loss=3.07-step=499-consumed_samples=500.0-last"
+# Known-harmless missing key: TE FP8 state absent in non-FP8 checkpoints.
+_EXPECTED_MISSING_KEYS = {"module.decoder.layers.self_attention.core_attention._extra_state"}
 
 
 TINY_MODEL_ARGS = (
@@ -256,4 +267,62 @@ def test_pretrain_then_finetune_then_regression_predict(tmp_path):
     prediction_files = sorted(predict_output.glob("predictions__rank_*.pt"))
     _validate_prediction_files(prediction_files, mode="regression")
 
+
+def _run_predict_capture_stderr(cmd, cwd):
+    """Run a predict command and return (stdout, stderr). Raises on non-zero exit."""
+    import os
+    from lightning.fabric.plugins.environments.lightning import find_free_network_port
+    env = dict(**os.environ)
+    env["MASTER_PORT"] = str(find_free_network_port())
+    result = subprocess.run(cmd, shell=True, cwd=cwd, env=env, text=True, capture_output=True)
+    if result.returncode != 0:
+        sys.stderr.write("STDOUT:\n" + result.stdout + "\n")
+        sys.stderr.write("STDERR:\n" + result.stderr + "\n")
+    assert result.returncode == 0, f"Command failed: {cmd}"
+    return result.stdout, result.stderr
+
+
+def _assert_no_unexpected_missing_keys(stderr):
+    import re
+    matches = re.findall(r"Missing keys.*?:\s*\{([^}]+)\}", stderr, re.DOTALL)
+    for match in matches:
+        keys = {k.strip().strip("'\"") for k in match.split(",")}
+        unexpected = keys - _EXPECTED_MISSING_KEYS
+        assert not unexpected, f"Unexpected missing checkpoint keys: {unexpected}"
+
+
+@pytest.mark.slow
+def test_deterministic_generate(tmp_path):
+    """Generate against the real finetuned checkpoint — validates output sanity and no unexpected missing keys."""
+    from pathlib import Path
+    if not Path(_FINETUNED_CKPT).exists():
+        pytest.skip(f"Finetuned checkpoint not found: {_FINETUNED_CKPT}")
+    if not FINETUNE_DATA_PATH.exists():
+        pytest.skip(f"Finetune data not found: {FINETUNE_DATA_PATH}")
+
+    predict_output = tmp_path / "predictions"
+    cmd = _build_predict_cmd(FINETUNE_DATA_PATH, FINETUNE_TOKENIZER_PATH, _FINETUNED_CKPT, predict_output)
+    stdout, stderr = _run_predict_capture_stderr(cmd, str(tmp_path))
+
+    _assert_no_unexpected_missing_keys(stderr)
+    prediction_files = sorted(predict_output.glob("predictions__rank_*.pt"))
+    _validate_prediction_files(prediction_files, mode="generation")
+
+
+@pytest.mark.slow
+def test_deterministic_regression_predict(tmp_path):
+    """Regression predict against the real finetuned checkpoint — validates output sanity and no unexpected missing keys."""
+    from pathlib import Path
+    if not Path(_FINETUNED_CKPT).exists():
+        pytest.skip(f"Finetuned checkpoint not found: {_FINETUNED_CKPT}")
+    if not FINETUNE_DATA_PATH.exists():
+        pytest.skip(f"Finetune data not found: {FINETUNE_DATA_PATH}")
+
+    predict_output = tmp_path / "regression_predictions"
+    cmd = _build_regression_predict_cmd(FINETUNE_DATA_PATH, FINETUNE_TOKENIZER_PATH, _FINETUNED_CKPT, predict_output)
+    stdout, stderr = _run_predict_capture_stderr(cmd, str(tmp_path))
+
+    _assert_no_unexpected_missing_keys(stderr)
+    prediction_files = sorted(predict_output.glob("predictions__rank_*.pt"))
+    _validate_prediction_files(prediction_files, mode="regression")
 
