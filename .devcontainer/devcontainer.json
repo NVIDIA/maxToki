@@ -46,7 +46,6 @@
 					"./sub-packages/bionemo-maxtoki/src",
 					"./sub-packages/bionemo-llm/src",
 					"./sub-packages/bionemo-testing/src",
-					"./3rdparty/NeMo",
 					"./3rdparty/Megatron-LM"
 				],
 				"python.defaultInterpreterPath": "/usr/bin/python",

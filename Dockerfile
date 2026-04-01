@@ -97,6 +97,8 @@ COPY ./LICENSE /workspace/bionemo2/LICENSE
 COPY ./3rdparty /workspace/bionemo2/3rdparty
 COPY ./sub-packages /workspace/bionemo2/sub-packages
 
+ARG NEMO_VERSION=2.7.2
+
 RUN --mount=type=bind,source=./requirements-test.txt,target=/requirements-test.txt \
   --mount=type=bind,source=./requirements-cve.txt,target=/requirements-cve.txt \
   --mount=type=cache,target=/root/.cache <<EOF
@@ -107,19 +109,19 @@ uv pip install nvidia-resiliency-ext/
 rm -rf nvidia-resiliency-ext/
 # ngcsdk causes strange dependency conflicts (ngcsdk requires protobuf<4, but nemo_toolkit requires protobuf==4.24.4, deleting it from the uv pip install prevents installation conflicts)
 sed -i "/ngcsdk/d" ./sub-packages/bionemo-core/pyproject.toml
-# Remove llama-index because bionemo doesn't use it and it adds CVEs to container
-sed -i "/llama-index/d" ./3rdparty/NeMo/requirements/requirements_nlp.txt
-# Pin 'nvidia-modelopt' to 0.27.1 due to an API incompatibility of version 0.25.0
-sed -i -E "s|nvidia-modelopt\[torch\]>=[^,]+,<=([^ ;]+)|nvidia-modelopt[torch]==\1|" ./3rdparty/NeMo/requirements/requirements_nlp.txt
 uv pip install --no-build-isolation \
+"nemo_toolkit[llm]==${NEMO_VERSION}" \
 ./3rdparty/*  \
 ./sub-packages/bionemo-core \
 ./sub-packages/bionemo-llm \
 ./sub-packages/bionemo-maxtoki \
 ./sub-packages/bionemo-testing \
+scanpy \
 -r /requirements-cve.txt \
 -r /requirements-test.txt
 
+# Remove llama-index: bionemo doesn't use it and it introduces CVEs.
+uv pip uninstall llama-index llama-index-core llama-index-legacy 2>/dev/null || true
 # Install back ngcsdk, as a WAR for the protobuf version conflict with nemo_toolkit.
 uv pip install ngcsdk==3.64.3  # Temporary fix for changed filename, see https://nvidia.slack.com/archives/C074Z808N05/p1746231345981209
 # Install >=0.46.1 bitsandbytes specifically because it has CUDA>12.9 support.
@@ -188,7 +190,7 @@ EOF
 RUN <<EOF
   set -eo pipefail
   rm -rf /usr/local/lib/python3.12/dist-packages/bionemo*
-  pip uninstall -y nemo_toolkit megatron_core
+  pip uninstall -y megatron_core
 EOF
 
 
@@ -201,7 +203,7 @@ FROM dev AS development
 WORKDIR /workspace/bionemo2
 COPY --from=bionemo2-base /workspace/bionemo2/ .
 COPY ./internal ./internal
-# because of the `rm -rf ./3rdparty` in bionemo2-base
+# because of the `rm -rf ./3rdparty` in bionemo2-base (only Megatron-LM remains)
 COPY ./3rdparty ./3rdparty
 
 USER root
