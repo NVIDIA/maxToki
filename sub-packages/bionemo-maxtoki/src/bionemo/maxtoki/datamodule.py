@@ -97,6 +97,7 @@ class MaxTokiDataModule(MegatronDataModule):
         super().__init__()
         self.tokenizer = tokenizer
         self.max_len = seq_length
+        self.seq_length = seq_length
         self.seed = seed
         self.num_workers = num_workers
         self.persistent_workers = persistent_workers
