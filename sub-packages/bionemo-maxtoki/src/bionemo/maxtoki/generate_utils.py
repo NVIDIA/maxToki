@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import torch
 import tqdm
 from megatron.core.inference.contexts import DynamicInferenceContext, TokenOverflowError
+from megatron.core.inference.inference_request import DynamicInferenceRequest
 from megatron.core.inference.sampling_params import SamplingParams
 from nemo.utils.exp_manager import TimingCallback
 
@@ -312,9 +313,12 @@ def maxtoki_generate_predict_step(
 
     try:
         for i in range(batch_size):
-            inference_context.add_request(
-                request_id=i, tokens=tokens_list[i], num_tokens_to_generate=max_tokens_to_generate
+            req = DynamicInferenceRequest(
+                request_id=i,
+                prompt_tokens=tokens_list[i],
+                sampling_params=SamplingParams(num_tokens_to_generate=max_tokens_to_generate),
             )
+            inference_context.add_request(req)
     except TokenOverflowError as e:
         raise TokenOverflowError(
             f"Token overflow error, likely due to insufficient memory. Decrease batch size or increase buffer size: {e}"
@@ -329,8 +333,7 @@ def maxtoki_generate_predict_step(
         inference_context.initialize_attention_state()
 
         # NOTE: These are packed - thanks dynamic inference context!
-        input_ids = inference_context.current_input_ids()
-        pos_ids = inference_context.current_position_ids()
+        input_ids, pos_ids = inference_context.current_input_and_position_ids()
 
         outputs = model.forward(
             input_ids, pos_ids, runtime_gather_output=True, inference_context=inference_context, next_token_only=True
