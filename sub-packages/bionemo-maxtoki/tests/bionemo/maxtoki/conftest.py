@@ -22,11 +22,11 @@ from bionemo.maxtoki.tokenizer import MaxTokiTokenizer
 
 
 PRETRAIN_DATA_PATH = Path("/home/ubuntu/data/cellformer-pretrain/genecorpus_XM_250708_update_shuffled_test100k.dataset")
-PRETRAIN_TOKENIZER_PATH = Path("/home/ubuntu/data/cellformer-pretrain/token_dictionary.pkl")
+PRETRAIN_TOKENIZER_PATH = Path("/home/ubuntu/data/cellformer-pretrain/token_dictionary.json")
 FINETUNE_DATA_PATH = Path("/home/ubuntu/data/cellformer")
 # TODO: update to .json once the collaborator-provided token dictionary is migrated.
 # See PICKLE-REMEDIATION.md for the full migration plan.
-FINETUNE_TOKENIZER_PATH = Path("/home/ubuntu/data/cellformer/token_dictionary.pkl")
+FINETUNE_TOKENIZER_PATH = Path("/home/ubuntu/data/cellformer/token_dictionary.json")
 
 
 @pytest.fixture()

@@ -33,7 +33,7 @@ Converts raw scRNA-seq h5ad data into rank-value encoded HuggingFace datasets.
 .. code-block :: python
 
     >>> from bionemo.maxtoki.data_prep import TranscriptomeTokenizer
-    >>> tk = TranscriptomeTokenizer({"cell_type": "cell_type", "organ_major": "organ"}, nproc=4)
+    >>> tk = TranscriptomeTokenizer("gene_median.json", "token_dictionary.json", custom_attr_name_dict={"cell_type": "cell_type", "organ_major": "organ"}, nproc=4)
     >>> tk.tokenize_data("data_directory", "output_directory", "output_prefix")
 """
 
@@ -161,6 +161,8 @@ class TranscriptomeTokenizer:
 
     def __init__(
         self,
+        gene_median_file,
+        token_dictionary_file,
         custom_attr_name_dict=None,
         time_column="time",
         unique_cell_id_column="unique_cell_id",
@@ -172,8 +174,6 @@ class TranscriptomeTokenizer:
         use_h5ad_index=False,
         keep_counts=False,
         model_version="V1",
-        gene_median_file,
-        token_dictionary_file,
         gene_mapping_file=None,
     ):
         """Initialize tokenizer.
