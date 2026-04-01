@@ -35,25 +35,24 @@
     >>> dataset_list, blueprint_dictionary = cpa.generate_cell_paragraph_blueprint(
     ...     "data_directory", "output_directory", "output_prefix")
     >>> output_prefix_complete = blueprint_dictionary["output_prefix_complete"]
-    >>> blueprint_file = f"{output_directory}/{output_prefix_complete}_cell_paragraph_blueprint.pkl"
+    >>> blueprint_file = f"{output_directory}/{output_prefix_complete}_cell_paragraph_blueprint.json"
     >>> time_token_dictionary = cpa.generate_time_dictionary(output_directory, output_prefix, max_timepoint)
-    >>> time_dict_file = f"{output_directory}/{output_prefix_complete}_time_dictionary.pkl"
+    >>> time_dict_file = f"{output_directory}/{output_prefix_complete}_time_dictionary.json"
     >>> cpa.assemble_cell_paragraphs(
     ...     dataset_list, blueprint_file, time_dict_file, "output_directory", "output_prefix", is_train=True)
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-import pickle
 from collections import defaultdict
 
 import numpy as np
 from datasets import Dataset
 from tqdm import tqdm
 
-from . import TOKEN_DICTIONARY_FILE
 from . import dataset_utils as du
 
 
@@ -176,7 +175,7 @@ class CellParagraphAssembler:
 
         Args:
             data_directory: Path to .dataset file or directory with multiple .dataset files.
-            output_directory: Path to directory for saving blueprint pickle.
+            output_directory: Path to directory for saving blueprint JSON file.
             output_prefix: Prefix for output files.
             query_alt_directory: Alternative data path for control vs. experimental queries.
             match_time_tolerance: Maximum time difference for matching control/experimental cells.
@@ -543,9 +542,9 @@ class CellParagraphAssembler:
             },
         }
 
-        filepath_cell_paragraph_blueprint = f"{output_directory}/{output_prefix_complete}_cell_paragraph_blueprint.pkl"
-        with open(filepath_cell_paragraph_blueprint, "wb") as fp:
-            pickle.dump(blueprint_dictionary, fp)
+        filepath_cell_paragraph_blueprint = f"{output_directory}/{output_prefix_complete}_cell_paragraph_blueprint.json"
+        with open(filepath_cell_paragraph_blueprint, "w") as fp:
+            json.dump(blueprint_dictionary, fp)
             logger.info(f"Saved cell paragraph blueprint to {filepath_cell_paragraph_blueprint}")
 
         return dataset_list, blueprint_dictionary
@@ -555,12 +554,12 @@ class CellParagraphAssembler:
         output_directory,
         output_prefix,
         max_timepoint,
-        token_dictionary=TOKEN_DICTIONARY_FILE,
+        token_dictionary,
     ):
         """Generate time token dictionary.
 
         Args:
-            output_directory: Path to directory for saving time dictionary pickle.
+            output_directory: Path to directory for saving time dictionary JSON file.
             output_prefix: Prefix for output file.
             max_timepoint: Maximum timepoint to include.
             token_dictionary: Path to base token dictionary pickle file.
@@ -571,8 +570,8 @@ class CellParagraphAssembler:
         if not isinstance(max_timepoint, int):
             raise TypeError("max_timepoint must be an integer.")
 
-        with open(token_dictionary, "rb") as fp:
-            token_dictionary = pickle.load(fp)
+        with open(token_dictionary, "r") as fp:
+            token_dictionary = json.load(fp)
 
         if self.allow_negative_timelapses:
             min_time = -max_timepoint
@@ -588,8 +587,8 @@ class CellParagraphAssembler:
 
         os.makedirs(output_directory, exist_ok=True)
 
-        with open(f"{output_directory}/{output_prefix}_time_dictionary.pkl", "wb") as fp:
-            pickle.dump(token_dictionary, fp)
+        with open(f"{output_directory}/{output_prefix}_time_dictionary.json", "w") as fp:
+            json.dump({str(k): v for k, v in token_dictionary.items()}, fp)
 
         return token_dictionary
 
@@ -622,16 +621,16 @@ class CellParagraphAssembler:
         if isinstance(time_token_dictionary_file, dict):
             token_dictionary = time_token_dictionary_file
         else:
-            with open(time_token_dictionary_file, "rb") as fp:
-                token_dictionary = pickle.load(fp)
+            with open(time_token_dictionary_file, "r") as fp:
+                token_dictionary = json.load(fp)
 
         token_dictionary = du.convert_token_dictionary_keys(token_dictionary)
 
         if isinstance(blueprint_dictionary_file, dict):
             blueprint_dictionary = blueprint_dictionary_file
         else:
-            with open(blueprint_dictionary_file, "rb") as fp:
-                blueprint_dictionary = pickle.load(fp)
+            with open(blueprint_dictionary_file, "r") as fp:
+                blueprint_dictionary = json.load(fp)
         data_files = blueprint_dictionary["data_files"]
         dataset_order = blueprint_dictionary["dataset_order"]
         time_choices = blueprint_dictionary["time_choices"]

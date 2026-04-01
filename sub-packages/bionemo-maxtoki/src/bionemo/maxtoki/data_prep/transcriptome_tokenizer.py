@@ -39,8 +39,8 @@ Converts raw scRNA-seq h5ad data into rank-value encoded HuggingFace datasets.
 
 from __future__ import annotations
 
+import json
 import logging
-import pickle
 import warnings
 from collections import Counter
 from pathlib import Path
@@ -53,7 +53,6 @@ import scipy.sparse as sp
 from datasets import Dataset
 from tqdm import tqdm
 
-from . import ENSEMBL_MAPPING_FILE, GENE_MEDIAN_FILE, TOKEN_DICTIONARY_FILE
 
 
 warnings.filterwarnings("ignore", message=".*The 'nopython' keyword.*")
@@ -173,9 +172,9 @@ class TranscriptomeTokenizer:
         use_h5ad_index=False,
         keep_counts=False,
         model_version="V1",
-        gene_median_file=GENE_MEDIAN_FILE,
-        token_dictionary_file=TOKEN_DICTIONARY_FILE,
-        gene_mapping_file=ENSEMBL_MAPPING_FILE,
+        gene_median_file,
+        token_dictionary_file,
+        gene_mapping_file=None,
     ):
         """Initialize tokenizer.
 
@@ -219,11 +218,11 @@ class TranscriptomeTokenizer:
         if self.model_version not in ["V1"]:
             logger.error("Unrecognized model version. Current options: V1: models pretrained on ~175M cells.")
 
-        with open(gene_median_file, "rb") as f:
-            self.gene_median_dict = pickle.load(f)
+        with open(gene_median_file, "r") as f:
+            self.gene_median_dict = json.load(f)
 
-        with open(token_dictionary_file, "rb") as f:
-            self.gene_token_dict = pickle.load(f)
+        with open(token_dictionary_file, "r") as f:
+            self.gene_token_dict = json.load(f)
 
         if ("<bos>" not in self.gene_token_dict) or ("<eos>" not in self.gene_token_dict):
             raise ValueError("<bos> and <eos> required in gene_token_dict.")
@@ -233,8 +232,8 @@ class TranscriptomeTokenizer:
         self.keep_counts = keep_counts
 
         if gene_mapping_file is not None:
-            with open(gene_mapping_file, "rb") as f:
-                self.gene_mapping_dict = pickle.load(f)
+            with open(gene_mapping_file, "r") as f:
+                self.gene_mapping_dict = json.load(f)
         else:
             self.gene_mapping_dict = {k: k for k, _ in self.gene_token_dict.items()}
 

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pickle
+import json
 
 import numpy as np
 import pytest
@@ -40,27 +40,27 @@ def synthetic_token_dict(tmp_path):
     d["<bos>"] = NUM_GENES
     d["<eos>"] = NUM_GENES + 1
     d["<pad>"] = NUM_GENES + 2
-    path = tmp_path / "token_dictionary.pkl"
-    with open(path, "wb") as f:
-        pickle.dump(d, f)
+    path = tmp_path / "token_dictionary.json"
+    with open(path, "w") as f:
+        json.dump(d, f)
     return d, path
 
 
 @pytest.fixture()
 def synthetic_gene_median_dict(tmp_path):
-    d = {gene: np.random.uniform(0.01, 1.0) for gene in _gene_ids()}
-    path = tmp_path / "gene_median_dictionary.pkl"
-    with open(path, "wb") as f:
-        pickle.dump(d, f)
+    d = {gene: float(np.random.uniform(0.01, 1.0)) for gene in _gene_ids()}
+    path = tmp_path / "gene_median_dictionary.json"
+    with open(path, "w") as f:
+        json.dump(d, f)
     return d, path
 
 
 @pytest.fixture()
 def synthetic_ensembl_mapping(tmp_path):
     d = {gene: gene for gene in _gene_ids()}
-    path = tmp_path / "ensembl_mapping_dict.pkl"
-    with open(path, "wb") as f:
-        pickle.dump(d, f)
+    path = tmp_path / "ensembl_mapping_dict.json"
+    with open(path, "w") as f:
+        json.dump(d, f)
     return d, path
 
 
@@ -334,8 +334,8 @@ class TestE2EPipeline:
 
         # Stage 2c: Assemble
         output_prefix = blueprint["output_prefix_complete"]
-        blueprint_file = str(paragraph_dir / f"{output_prefix}_cell_paragraph_blueprint.pkl")
-        time_dict_file = str(paragraph_dir / "test_time_dictionary.pkl")
+        blueprint_file = str(paragraph_dir / f"{output_prefix}_cell_paragraph_blueprint.json")
+        time_dict_file = str(paragraph_dir / "test_time_dictionary.json")
 
         result = cpa.assemble_cell_paragraphs(
             dataset_list,

@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -24,9 +25,10 @@ from lightning.fabric.plugins.environments.lightning import find_free_network_po
 def run_command_with_timeout(command, path, env, timeout=3600):
     """Run command with timeout and incremental output processing to prevent hanging."""
     # Start process without capturing output in the main process
+    args = shlex.split(command) if isinstance(command, str) else command
     process = subprocess.Popen(
-        command,
-        shell=True,
+        args,
+        shell=False,
         cwd=path,
         env=env,
         text=True,

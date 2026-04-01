@@ -41,9 +41,9 @@ def get_parser() -> argparse.ArgumentParser:
     tok.add_argument("--data-directory", required=True, help="Directory containing .h5ad files.")
     tok.add_argument("--output-directory", required=True, help="Directory for output .dataset.")
     tok.add_argument("--output-prefix", required=True, help="Prefix for output .dataset.")
-    tok.add_argument("--gene-median-file", default=None, help="Path to gene median pickle.")
-    tok.add_argument("--token-dictionary-file", default=None, help="Path to token dictionary pickle.")
-    tok.add_argument("--gene-mapping-file", default=None, help="Path to ensembl mapping pickle.")
+    tok.add_argument("--gene-median-file", default=None, help="Path to gene median JSON file.")
+    tok.add_argument("--token-dictionary-file", default=None, help="Path to token dictionary JSON file.")
+    tok.add_argument("--gene-mapping-file", default=None, help="Path to ensembl mapping JSON file.")
     tok.add_argument(
         "--custom-attrs", default=None, help='JSON dict of custom attributes, e.g. \'{"cell_type": "cell_type"}\'.'
     )
@@ -59,7 +59,7 @@ def get_parser() -> argparse.ArgumentParser:
     ap.add_argument("--data-directory", required=True, help="Path to .dataset file or directory.")
     ap.add_argument("--output-directory", required=True, help="Directory for output files.")
     ap.add_argument("--output-prefix", required=True, help="Prefix for output files.")
-    ap.add_argument("--token-dictionary-file", default=None, help="Path to token dictionary pickle.")
+    ap.add_argument("--token-dictionary-file", default=None, help="Path to token dictionary JSON file.")
     ap.add_argument("--max-timepoint", type=int, required=True, help="Maximum timepoint for time dictionary.")
     ap.add_argument("--num-examples", type=int, default=10_000_000, help="Number of cell paragraphs.")
     ap.add_argument("--min-timepoints", type=int, default=3, help="Minimum timepoints per paragraph.")
@@ -74,8 +74,8 @@ def get_parser() -> argparse.ArgumentParser:
 
     # --- assemble-queries ---
     aq = subparsers.add_parser("assemble-queries", help="Assemble evaluation query datasets.")
-    aq.add_argument("--blueprint-dictionary-file", required=True, help="Path to blueprint pickle.")
-    aq.add_argument("--time-token-dictionary-file", required=True, help="Path to time token dictionary pickle.")
+    aq.add_argument("--blueprint-dictionary-file", required=True, help="Path to blueprint JSON file.")
+    aq.add_argument("--time-token-dictionary-file", required=True, help="Path to time token dictionary JSON file.")
     aq.add_argument("--cell-paragraph-dataset-file", required=True, help="Path to cell paragraph .dataset.")
     aq.add_argument("--output-directory", required=True, help="Directory for output .dataset.")
     aq.add_argument("--output-prefix", default=None, help="Prefix for output .dataset.")
@@ -95,12 +95,12 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     if args.command == "tokenize":
-        from bionemo.maxtoki.data_prep import (
-            ENSEMBL_MAPPING_FILE,
-            GENE_MEDIAN_FILE,
-            TOKEN_DICTIONARY_FILE,
-            TranscriptomeTokenizer,
-        )
+        from bionemo.maxtoki.data_prep import TranscriptomeTokenizer
+
+        if not args.gene_median_file:
+            raise ValueError("--gene-median-file is required.")
+        if not args.token_dictionary_file:
+            raise ValueError("--token-dictionary-file is required.")
 
         custom_attrs = json.loads(args.custom_attrs) if args.custom_attrs else None
         tk = TranscriptomeTokenizer(
@@ -111,14 +111,17 @@ def main(argv=None):
             collapse_gene_ids=not args.no_collapse_gene_ids,
             use_h5ad_index=args.use_h5ad_index,
             keep_counts=args.keep_counts,
-            gene_median_file=args.gene_median_file or GENE_MEDIAN_FILE,
-            token_dictionary_file=args.token_dictionary_file or TOKEN_DICTIONARY_FILE,
-            gene_mapping_file=args.gene_mapping_file or ENSEMBL_MAPPING_FILE,
+            gene_median_file=args.gene_median_file,
+            token_dictionary_file=args.token_dictionary_file,
+            gene_mapping_file=args.gene_mapping_file,
         )
         tk.tokenize_data(args.data_directory, args.output_directory, args.output_prefix)
 
     elif args.command == "assemble-paragraphs":
-        from bionemo.maxtoki.data_prep import TOKEN_DICTIONARY_FILE, CellParagraphAssembler
+        from bionemo.maxtoki.data_prep import CellParagraphAssembler
+
+        if not args.token_dictionary_file:
+            raise ValueError("--token-dictionary-file is required.")
 
         is_train = not args.is_eval
 
@@ -137,14 +140,13 @@ def main(argv=None):
             args.data_directory, args.output_directory, args.output_prefix
         )
 
-        token_dict_file = args.token_dictionary_file or TOKEN_DICTIONARY_FILE
         cpa.generate_time_dictionary(
-            args.output_directory, args.output_prefix, args.max_timepoint, token_dictionary=token_dict_file
+            args.output_directory, args.output_prefix, args.max_timepoint, token_dictionary=args.token_dictionary_file
         )
 
         output_prefix_complete = blueprint_dictionary["output_prefix_complete"]
-        blueprint_file = f"{args.output_directory}/{output_prefix_complete}_cell_paragraph_blueprint.pkl"
-        time_dict_file = f"{args.output_directory}/{args.output_prefix}_time_dictionary.pkl"
+        blueprint_file = f"{args.output_directory}/{output_prefix_complete}_cell_paragraph_blueprint.json"
+        time_dict_file = f"{args.output_directory}/{args.output_prefix}_time_dictionary.json"
 
         cpa.assemble_cell_paragraphs(
             dataset_list,

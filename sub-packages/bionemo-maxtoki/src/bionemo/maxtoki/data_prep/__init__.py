@@ -21,19 +21,9 @@ Three-stage pipeline for preparing single-cell RNA-seq data for MaxToki training
 2. **CellParagraphAssembler**: Tokenized datasets -> training cell paragraphs
 3. **QueryAssembler**: Cell paragraphs + alternative data -> evaluation query datasets
 
-Resource pickle files (token dictionary, gene medians, ensembl mapping) must be placed
+Resource JSON files (token dictionary, gene medians, ensembl mapping) must be placed
 in the ``resources/`` subdirectory. See ``resources/README.md`` for format details.
 """
-
-from pathlib import Path
-
-
-RESOURCES_DIR = Path(__file__).parent / "resources"
-
-ENSEMBL_MAPPING_FILE = RESOURCES_DIR / "ensembl_mapping_dict_v1.pkl"
-GENE_MEDIAN_FILE = RESOURCES_DIR / "gene_median_dictionary_v1.pkl"
-GENE_NAME_ID_FILE = RESOURCES_DIR / "gene_name_id_dict_v1.pkl"
-TOKEN_DICTIONARY_FILE = RESOURCES_DIR / "token_dictionary_v1.pkl"
 
 from bionemo.maxtoki.data_prep.cell_paragraph_assembler import CellParagraphAssembler
 from bionemo.maxtoki.data_prep.query_assembler import QueryAssembler
@@ -41,11 +31,6 @@ from bionemo.maxtoki.data_prep.transcriptome_tokenizer import TranscriptomeToken
 
 
 __all__ = [
-    "ENSEMBL_MAPPING_FILE",
-    "GENE_MEDIAN_FILE",
-    "GENE_NAME_ID_FILE",
-    "RESOURCES_DIR",
-    "TOKEN_DICTIONARY_FILE",
     "CellParagraphAssembler",
     "QueryAssembler",
     "TranscriptomeTokenizer",

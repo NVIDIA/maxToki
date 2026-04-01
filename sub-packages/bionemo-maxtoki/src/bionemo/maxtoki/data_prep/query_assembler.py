@@ -36,9 +36,9 @@ with cells from experimental/alternative data sources.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-import pickle
 import random
 from pathlib import Path
 
@@ -124,8 +124,8 @@ class QueryAssembler:
         """Build query dataset for specific eval cells as query.
 
         Args:
-            blueprint_dictionary_file: Path to cell paragraph blueprint pickle.
-            time_token_dictionary_file: Path to time token dictionary pickle.
+            blueprint_dictionary_file: Path to cell paragraph blueprint JSON file.
+            time_token_dictionary_file: Path to time token dictionary JSON file.
             cell_paragraph_dataset_file: Path to .dataset with cell paragraphs.
             query_data_files: List of alternative dataset paths.
             query_alt_directory: Path to directory with alternative query datasets.
@@ -135,8 +135,8 @@ class QueryAssembler:
         Returns:
             The query paragraphs dataset.
         """
-        with open(blueprint_dictionary_file, "rb") as fp:
-            blueprint_dictionary = pickle.load(fp)
+        with open(blueprint_dictionary_file, "r") as fp:
+            blueprint_dictionary = json.load(fp)
 
         alt_query_dataset_timegroup_timechoice_dict = None
         alt_query_dataset_list = None
@@ -240,8 +240,8 @@ class QueryAssembler:
 
         cell_paragraphs_dataset = du.load_and_filter(input_data_file=cell_paragraph_dataset_file, nproc=self.nproc)
 
-        with open(time_token_dictionary_file, "rb") as fp:
-            token_dictionary = pickle.load(fp)
+        with open(time_token_dictionary_file, "r") as fp:
+            token_dictionary = json.load(fp)
 
         token_dictionary = du.convert_token_dictionary_keys(token_dictionary)
 

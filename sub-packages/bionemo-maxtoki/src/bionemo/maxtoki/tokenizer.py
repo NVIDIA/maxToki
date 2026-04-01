@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import collections
-import pickle
+import json
 import warnings
 from enum import Enum
 from typing import Dict, List, Literal, Optional, Tuple, Union
@@ -964,8 +964,8 @@ class GeneformerPretrainer(Trainer):
         # pre-obtained with [dataset[i]["length"] for i in range(len(dataset))]
         example_lengths_file = kwargs.pop("example_lengths_file")
         if example_lengths_file:
-            with open(example_lengths_file, "rb") as f:
-                self.example_lengths = pickle.load(f)
+            with open(example_lengths_file, "r") as f:
+                self.example_lengths = json.load(f)
         else:
             raise Exception(
                 "example_lengths_file is required; e.g. https://huggingface.co/datasets/ctheodoris/Genecorpus-30M/tree/main/genecorpus_30M_2048_sorted_lengths.pkl"

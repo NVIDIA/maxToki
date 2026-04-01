@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import argparse
-import pickle
+import json
 import tempfile
 from functools import partial
 from pathlib import Path
@@ -166,7 +166,8 @@ def predict(
         ),
     )
 
-    token_dictionary = pickle.load(open(tokenizer_path, "rb"))
+    with open(tokenizer_path) as f:
+        token_dictionary = json.load(f)
     # NOTE: this fixes a dtype serialization error when checkpointing. Suspect we have different token dictionaries.
     token_dictionary = {k: int(v) for k, v in token_dictionary.items()}
 

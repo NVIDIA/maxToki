@@ -14,8 +14,9 @@
 # limitations under the License.
 
 import argparse
+import json
 import math
-import pickle
+
 from pathlib import Path
 from typing import List, Literal, Optional, Sequence, Type, get_args
 
@@ -272,9 +273,10 @@ def main(
     )
 
     if tokenizer_path is None:
-        tokenizer_path = train_data_path.parent / "token_dictionary.pkl"
+        tokenizer_path = train_data_path.parent / "token_dictionary.json"
 
-    token_dictionary = pickle.load(open(tokenizer_path, "rb"))
+    with open(tokenizer_path) as f:
+        token_dictionary = json.load(f)
     # NOTE: this fixes a dtype serialization error when checkpointing. Suspect we have different token dictionaries.
     token_dictionary = {k: int(v) for k, v in token_dictionary.items()}
 

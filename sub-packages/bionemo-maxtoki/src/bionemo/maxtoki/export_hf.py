@@ -28,8 +28,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
-import pickle
+
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Tuple, override
 
@@ -142,8 +143,8 @@ class HFMaxTokiExporter(HFLlamaExporter):
     @property
     def tokenizer(self):
         if not hasattr(self, "_tokenizer"):
-            with open(self.token_dictionary_path, "rb") as f:
-                token_dictionary = pickle.load(f)
+            with open(self.token_dictionary_path) as f:
+                token_dictionary = json.load(f)
             self._tokenizer = MaxTokiTokenizer(token_dictionary=token_dictionary)
         return self._tokenizer
 
@@ -319,8 +320,8 @@ def main():
 
 
 def load_data(data_path, tokenizer_path, trainer):
-    with open(tokenizer_path, "rb") as f:
-        token_dictionary = pickle.load(f)
+    with open(tokenizer_path) as f:
+        token_dictionary = json.load(f)
     tokenizer = MaxTokiTokenizer(token_dictionary=token_dictionary)
 
     data = MaxTokiDataModule(

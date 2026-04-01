@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pickle
+import json
 from pathlib import Path
 
 import pytest
@@ -24,6 +24,8 @@ from bionemo.maxtoki.tokenizer import MaxTokiTokenizer
 PRETRAIN_DATA_PATH = Path("/home/ubuntu/data/cellformer-pretrain/genecorpus_XM_250708_update_shuffled_test100k.dataset")
 PRETRAIN_TOKENIZER_PATH = Path("/home/ubuntu/data/cellformer-pretrain/token_dictionary.pkl")
 FINETUNE_DATA_PATH = Path("/home/ubuntu/data/cellformer")
+# TODO: update to .json once the collaborator-provided token dictionary is migrated.
+# See PICKLE-REMEDIATION.md for the full migration plan.
 FINETUNE_TOKENIZER_PATH = Path("/home/ubuntu/data/cellformer/token_dictionary.pkl")
 
 
@@ -51,11 +53,11 @@ def tokenizer(synthetic_token_dictionary):
 
 @pytest.fixture()
 def real_token_dictionary():
-    path = FINETUNE_TOKENIZER_PATH
+    path = FINETUNE_TOKENIZER_PATH.with_suffix(".json")
     if not path.exists():
         pytest.skip(f"Real token dictionary not found at {path}")
-    with open(path, "rb") as f:
-        return pickle.load(f)
+    with open(path) as f:
+        return json.load(f)
 
 
 @pytest.fixture()

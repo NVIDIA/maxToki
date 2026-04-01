@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import shlex
 import subprocess
 import sys
 
@@ -130,7 +131,7 @@ def _validate_prediction_files(prediction_files, mode="regression"):
     assert len(prediction_files) > 0, "No prediction files found"
     nonempty_count = 0
     for pf in prediction_files:
-        data = torch.load(pf, weights_only=False)
+        data = torch.load(pf, weights_only=True)
         assert isinstance(data, dict), f"Expected dict, got {type(data)}"
 
         if mode == "regression":
@@ -274,7 +275,7 @@ def _run_predict_capture_stderr(cmd, cwd):
     from lightning.fabric.plugins.environments.lightning import find_free_network_port
     env = dict(**os.environ)
     env["MASTER_PORT"] = str(find_free_network_port())
-    result = subprocess.run(cmd, shell=True, cwd=cwd, env=env, text=True, capture_output=True)
+    result = subprocess.run(shlex.split(cmd), shell=False, cwd=cwd, env=env, text=True, capture_output=True)
     if result.returncode != 0:
         sys.stderr.write("STDOUT:\n" + result.stdout + "\n")
         sys.stderr.write("STDERR:\n" + result.stderr + "\n")
