@@ -16,7 +16,6 @@ import contextlib
 import logging
 from dataclasses import dataclass, field
 from functools import partial
-
 from typing import Any, Dict, Generic, List, Literal, Optional, Sequence, Tuple, Type, TypeVar
 
 import torch
@@ -31,16 +30,11 @@ from megatron.core.utils import deprecate_inference_params
 from nemo.collections.llm import Llama32Config1B, MaskedTokenLossReduction
 from nemo.collections.llm.gpt.model.base import get_packed_seq_params, mtp_block_spec
 from nemo.collections.llm.gpt.model.llama import apply_rope_scaling
-
 from nemo.lightning.base import get_vocab_size
 from torch import Tensor
 from torch.nn import Linear
 from torchmetrics import Metric
 
-from bionemo.maxtoki.tokenizer import (
-    MaxTokiTokenizer,
-    find_eoq_indices,
-)
 from bionemo.llm.api import MegatronLossType
 from bionemo.llm.model.config import (
     _OVERRIDE_BIONEMO_CONFIG_DEFAULTS,
@@ -48,6 +42,10 @@ from bionemo.llm.model.config import (
     TorchmetricsConfig,
 )
 from bionemo.llm.utils import iomixin_utils as iom
+from bionemo.maxtoki.tokenizer import (
+    MaxTokiTokenizer,
+    find_eoq_indices,
+)
 
 
 __all__: Sequence[str] = (
@@ -58,6 +56,7 @@ __all__: Sequence[str] = (
     "MaxTokiRegressionHead",
     "UnreducedCELoss",
     "UnreducedMSELoss",
+    "maxtoki_regression_predict_step",
 )
 
 
@@ -1172,6 +1171,78 @@ def maxtoki_headless_predict_step(
         # [1, B]
         "regression_preds": predictions,
         "timelapse_token_preds": timelapse_token_preds,
+    }
+
+
+def _numeric_token_preds_at_eoq(model, batch, lm_logits, eoqs) -> Tensor:
+    """Hard argmax over numeric-value tokens at each ``<eoq>`` position, as ``[1, B]`` token ids.
+
+    Mirrors the token-prediction branch of ``MaxTokiFineTuneModel._headless_timelapse`` so that the
+    explicit-regression-head predict step (``FinetuneLlamaModel``, which lacks the headless decode)
+    emits the same ``timelapse_token_preds`` field as ``maxtoki_headless_predict_step`` — keeping the
+    two prediction paths' output schema identical. Returns a ``-1`` sentinel of shape ``[1, B]`` if
+    the LM logits are unavailable, so the schema is preserved either way.
+    """
+    n_batch, seq_len = batch["tokens"].shape
+    if lm_logits is None or not torch.is_tensor(lm_logits) or lm_logits.dim() != 3:
+        return torch.full((1, n_batch), -1, dtype=torch.long, device=eoqs.device)
+    # The model is sequence-first ([S, B, V]); normalize in case postprocess returned [B, S, V].
+    if tuple(lm_logits.shape[:2]) == (n_batch, seq_len):
+        lm_logits = lm_logits.transpose(0, 1)
+    vocab = lm_logits.shape[-1]
+    idx = eoqs.view(1, n_batch, 1).expand(1, n_batch, vocab)
+    eoq_logits = torch.gather(lm_logits, dim=0, index=idx)  # [1, B, V]
+    numeric_mask = model.tokenizer.build_numeric_mask(vocab_size=vocab).to(lm_logits.device).bool()
+    eoq_logits = eoq_logits.masked_fill(~numeric_mask, float("-inf"))
+    return eoq_logits.argmax(dim=-1)  # [1, B]
+
+
+def maxtoki_regression_predict_step(
+    model,
+    batch,
+    batch_idx: Optional[int] = None,
+    eoq_token_id: Optional[int] = None,
+    label_scalar: float = 1.0,
+) -> Dict[str, Any]:
+    """Predict step for the explicit-regression-head model (``FinetuneLlamaModel``).
+
+    Mirrors ``maxtoki_headless_predict_step`` but reads the learned ``regression_head``
+    output instead of decoding the value from the LM logits over numeric tokens. The
+    prediction is taken at the ``<eoq>`` query position (the token immediately before the
+    answer) and multiplied by ``label_scalar`` to undo the scaling applied to the
+    regression labels during training.
+
+    Args:
+        model: The lightning module wrapping ``FinetuneLlamaModel``.
+        batch: A collated batch containing at least ``tokens`` (and optionally ``attention_mask``).
+        batch_idx: Unused; present for predict_step signature compatibility.
+        eoq_token_id: Token id of ``<eoq>``. If ``None``, looked up from ``model.tokenizer``.
+        label_scalar: Scalar the model's labels were divided by during training (the HF
+            aging model used 1000). Predictions are multiplied by this to recover real units.
+
+    Returns:
+        ``{"regression_preds": [1, B], "timelapse_token_preds": [1, B]}`` — the same schema as
+        ``maxtoki_headless_predict_step``. ``regression_preds`` is the learned head value at
+        ``<eoq>``; ``timelapse_token_preds`` is the numeric-token argmax at ``<eoq>`` from the LM
+        logits (a ``-1`` sentinel if logits are unavailable).
+    """
+    if "attention_mask" not in batch:
+        batch["attention_mask"] = None
+
+    outputs = model.forward_step(batch)
+
+    # FinetuneLlamaModel returns regression_outputs with shape [seq_len, batch, 1].
+    regression_outputs = outputs["regression_outputs"].squeeze(-1)  # [S, B]
+
+    if eoq_token_id is None:
+        eoq_token_id = model.tokenizer.token_dictionary["<eoq>"]
+    eoqs = find_eoq_indices(batch["tokens"], eoq_token_id)
+    predictions = torch.gather(regression_outputs, dim=0, index=eoqs.unsqueeze(0))
+    return {
+        # Both [1, B]. timelapse_token_preds is emitted for output-schema parity with the headless
+        # path (maxtoki_headless_predict_step); it is the numeric-token argmax at <eoq>.
+        "regression_preds": predictions * label_scalar,
+        "timelapse_token_preds": _numeric_token_preds_at_eoq(model, batch, outputs.get("lm_outputs"), eoqs),
     }
 
 

@@ -254,6 +254,11 @@ python -m bionemo.maxtoki.predict \
     --seq-length 16384
 ```
 
+This default path is *headless*: the timelapse value is decoded from the LM logits over numeric
+tokens. For a model with an **explicit learned regression head** (e.g. one trained with the
+HuggingFace code and imported via `import_regression_hf`), add `--regression-head` — see
+[HuggingFace regression model to BioNeMo](#huggingface-regression-model-to-bionemo).
+
 ### Generation (NextCell)
 
 ```bash
@@ -343,6 +348,100 @@ python -m bionemo.maxtoki.import_hf \
     --result-dir ./converted_bionemo \
     --num-gpus 1
 ```
+
+### HuggingFace regression model to BioNeMo
+
+The `import_hf` path above handles a plain `LlamaForCausalLM` (headless regression). A model
+trained with the HuggingFace code that carries an **explicit regression head** is a custom
+wrapper instead: a Llama backbone under the `cf.` state-dict prefix (`cf.model.*`,
+`cf.lm_head.weight`) plus a `linear1` = `Linear(hidden, 1)` head, and it ships without a
+`config.json`. Use `import_regression_hf` for it: it reads the safetensors directly, strips the
+`cf.` prefix, reuses the standard backbone mapping, and maps `linear1.* -> regression_head.linear_fc2.*`
+on `FinetuneLlamaModel`. The backbone hyperparameters it cannot infer from weight shapes (head
+count, RoPE base, norm epsilon) come from a matching Llama `config.json` passed via `--hf-config`
+(e.g. `MaxToki-217M-HF/config.json` from the hub); the vocab size is read from the checkpoint.
+
+The import runs in fp32 with the distributed optimizer disabled so the converted weights are
+written to the checkpoint verbatim, and runs its single throwaway step on short sequences
+(`--compute-seq-length`) while baking the full `--seq-length` into the saved config.
+
+RoPE is taken from the `--hf-config` `rope_scaling` block, not assumed: a `llama3` block maps to its
+`factor` and `original_max_position_embeddings`; a `null`/absent block means standard RoPE (no
+scaling), which is what the HF MaxToki models use — they handle the extended temporal context by
+extrapolation rather than the llama3 scaling that the BioNeMo `train.py` finetune applies
+(`--rope-scaling-factor`). Use an `--hf-config` whose `rope_theta`/`rope_scaling` match the trained
+model (e.g. `MaxToki-217M-HF/config.json`: θ=10000, `rope_scaling=null`).
+
+#### 1. Convert
+
+```bash
+python -m bionemo.maxtoki.import_regression_hf \
+    --model-safetensors /path/to/aging_model/model.safetensors \
+    --hf-config /path/to/MaxToki-217M-HF/config.json \
+    --tokenizer-path /path/to/token_dictionary.json \
+    --train-data-path /path/to/heldout.dataset \
+    --val-data-path /path/to/heldout.dataset \
+    --test-data-path /path/to/heldout.dataset \
+    --seq-length 16512 \
+    --result-dir ./converted_aging --experiment-name maxtoki_aging
+```
+
+This writes a standard BioNeMo checkpoint under
+`./converted_aging/maxtoki_aging/dev/checkpoints/<...-last>`.
+
+#### 2. Load the converted model and run inference
+
+The converted checkpoint is a normal BioNeMo checkpoint — load it with `predict` exactly like the
+[Regression (TimeBetweenCells)](#regression-timebetweencells) age-prediction path above, just with
+the extra `--regression-head` flag. That flag reads the learned head output at the `<eoq>` query
+position and rescales by `--label-scalar` (the value the labels were divided by during training; the
+aging model used `1000`), instead of decoding the value from the LM logits over numeric tokens. The
+prediction dataset must contain only timelapse (`time`) rows, since each must have an `<eoq>` token.
+The `<eoq>` id is taken from `--tokenizer-path` by default; pass `--eoq-token-id` only to override it
+(e.g. if the tokenizer lacks `<eoq>`).
+
+```bash
+python -m bionemo.maxtoki.predict \
+    --initial-ckpt-path ./converted_aging/maxtoki_aging/dev/checkpoints/<last-ckpt> \
+    --data-path /path/to/heldout_time_rows.dataset \
+    --tokenizer-path /path/to/token_dictionary.json \
+    --output-dir ./aging_predictions \
+    --seq-length 16512 --write-interval batch \
+    --regression-head --label-scalar 1000
+```
+
+Output lands in the **same format as the age-prediction path**: one
+`predictions__rank_*__batch_*.pt` per batch, each a dict with the identical schema both paths use —
+`regression_preds` (`[1, B]`, the per-sample timelapse value in real units), `timelapse_token_preds`
+(`[1, B]`, the numeric-token argmax at `<eoq>`), and `batch_idx`. Files are ordered by `batch_idx`,
+so at `--micro-batch-size 1` on a single GPU they line up 1:1 with the input `time` rows. The
+explicit-head path reads `regression_preds` from the learned head and still derives
+`timelapse_token_preds` from the LM logits, so the two inference modes are drop-in interchangeable
+for any downstream reader.
+
+#### 3. Verify against the reference predictions
+
+To confirm the port reproduces the original HuggingFace predictions, compare against a reference
+pickle (a dict with `generated_answer_timelapse` and `ground_truth_answer_timelapse`):
+
+```bash
+python -m bionemo.maxtoki.verify_regression \
+    --predictions-dir ./aging_predictions \
+    --reference /path/to/reference_predictions.pickle
+```
+
+On the held-out aging set this reports Pearson ≈ 0.99999 vs the HuggingFace predictions (MAE ≈ 1–3
+in months; the small residual is bf16 prediction vs the fp32 reference).
+
+For a copy-pasteable end-to-end runner (subset `time` rows → convert → predict → verify, with all
+paths spelled out), see `run-maxtoki-regression-verify.sh` in the repo root.
+
+This whole path is covered by tests: `tests/bionemo/maxtoki/test_regression_import.py` (fast unit
+tests for the config/weight mapping and the `<eoq>` gather + `label_scalar` rescale) and
+`tests/bionemo/maxtoki/test_regression_conversion.py` (a `slow`, end-to-end import →
+`predict --regression-head` → compare-against-the-HF-forward-pass check asserting Pearson > 0.999,
+MAE < 5). The end-to-end test needs the external aging artifacts; point it at them with the
+`MAXTOKI_AGING_*` env vars documented in that test's module docstring.
 
 ## Citation
 

@@ -26,22 +26,24 @@ from nemo.collections import llm
 from nemo.lightning import NeMoLogger
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
+from bionemo.llm.lightning import BionemoLightningModule, PassthroughLossReduction, default_megatron_optimizer
+from bionemo.llm.utils.callbacks import PredictionWriter
+from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.maxtoki.datamodule import MaxTokiDataModule
 from bionemo.maxtoki.generate_utils import (
     PredictTimingCallback,
     maxtoki_generate_predict_step,
     maxtoki_generate_predict_step_naive,
 )
+from bionemo.maxtoki.lightning import PassthroughEverythingLossReduction
 from bionemo.maxtoki.model import (
+    MaxTokiFineTuneConfig,
     MaxTokiMultitaskFineTuneConfig,
     maxtoki_forward_step,
     maxtoki_headless_predict_step,
+    maxtoki_regression_predict_step,
 )
 from bionemo.maxtoki.tokenizer import MaxTokiTokenizer
-from bionemo.llm.lightning import BionemoLightningModule, PassthroughLossReduction, default_megatron_optimizer
-from bionemo.maxtoki.lightning import PassthroughEverythingLossReduction
-from bionemo.llm.utils.callbacks import PredictionWriter
-from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 
 
 __all__: Sequence[str] = ("get_parser", "predict")
@@ -76,6 +78,9 @@ def predict(
     using_pretrain_dataset: bool = False,
     naive_benchmarking_only: bool = False,
     limit_predict_batches_to_n: Optional[int] = None,
+    regression_head: bool = False,
+    label_scalar: float = 1.0,
+    eoq_token_id: Optional[int] = None,
 ):
     if work_dir is None:
         work_dir = Path(tempfile.mkdtemp())
@@ -140,13 +145,18 @@ def predict(
         ),
     )
 
-    config = MaxTokiMultitaskFineTuneConfig(
+    # The explicit-regression-head model (FinetuneLlamaModel) needs its head weights loaded
+    # from the checkpoint, so we must NOT skip the regression_head prefix.
+    config_class = MaxTokiFineTuneConfig if regression_head else MaxTokiMultitaskFineTuneConfig
+    extra_config_kwargs = {"initial_ckpt_skip_keys_with_these_prefixes": []} if regression_head else {}
+    config = config_class(
         # I think these can basically all use defaults because we load them from the underlying checkpoint
         initial_ckpt_path=ckpt_dir,
         seq_length=seq_length,
         params_dtype=get_autocast_dtype(precision),
         pipeline_dtype=get_autocast_dtype(precision),
         autocast_dtype=get_autocast_dtype(precision),
+        **extra_config_kwargs,
     )
 
     trainer.strategy._setup_optimizers = False
@@ -178,7 +188,15 @@ def predict(
     else:
         base_pred_step_func = maxtoki_generate_predict_step
 
-    if generate_next_cell:
+    if regression_head:
+        # Explicit learned regression head (FinetuneLlamaModel.regression_head): read the head
+        # output at <eoq> and rescale by label_scalar. Mirrors the headless step otherwise.
+        predict_step_func = partial(
+            maxtoki_regression_predict_step,
+            eoq_token_id=eoq_token_id,
+            label_scalar=label_scalar,
+        )
+    elif generate_next_cell:
         if using_pretrain_dataset:
             predict_step_func = partial(
                 base_pred_step_func,
@@ -240,6 +258,9 @@ def predict(
         micro_batch_size=micro_batch_size,
         global_batch_size=global_batch_size,
         limit_predict_batches_to_n=limit_predict_batches_to_n,
+        # The regression-head path only needs the (padded) tokens and finds <eoq> by id, so
+        # use the simple padding collator rather than the grammar-checking multitask collator.
+        pretrain=regression_head,
     )
 
     trainer.predict(model, datamodule=datamodule)
@@ -421,6 +442,29 @@ def get_parser():
         default=None,
         help="Limit the number of predict batches to n. This is useful for benchmarking the performance of the model.",
     )
+    parser.add_argument(
+        "--regression-head",
+        action="store_true",
+        default=False,
+        help="Use the explicit learned regression head (FinetuneLlamaModel) instead of the headless "
+        "numeric-token decode. Reads the head output at <eoq> and rescales by --label-scalar.",
+    )
+    parser.add_argument(
+        "--label-scalar",
+        type=float,
+        required=False,
+        default=1.0,
+        help="Scalar the regression labels were divided by during training; predictions are multiplied "
+        "back by this (the HF aging model used 1000). Only used with --regression-head.",
+    )
+    parser.add_argument(
+        "--eoq-token-id",
+        type=int,
+        required=False,
+        default=None,
+        help="Token id of <eoq> at which the regression head is read. Defaults to the tokenizer's "
+        "<eoq>. Only used with --regression-head.",
+    )
     return parser
 
 
@@ -454,6 +498,9 @@ def entrypoint():
         using_pretrain_dataset=args.using_pretrain_dataset,
         naive_benchmarking_only=args.naive_benchmarking_only,
         limit_predict_batches_to_n=args.limit_predict_batches_to_n,
+        regression_head=args.regression_head,
+        label_scalar=args.label_scalar,
+        eoq_token_id=args.eoq_token_id,
     )
 
 

@@ -55,7 +55,7 @@ mkdir -p ~/.aws ~/.ngc ~/.cache ~/.ssh
 
 DATA_MOUNT=""
 if [ -d "/data" ]; then
-    DATA_MOUNT="-v /data:/home/ubuntu/data"
+    DATA_MOUNT="-v /data:/home/ubuntu/data -v /data2:/data2"
 fi
 
 # ── Run ──────────────────────────────────────────────────────────────────────
