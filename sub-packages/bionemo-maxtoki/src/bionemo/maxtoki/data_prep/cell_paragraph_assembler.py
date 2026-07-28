@@ -59,6 +59,22 @@ from . import dataset_utils as du
 logger = logging.getLogger(__name__)
 
 
+def _json_default(o):
+    """``json.dump`` default hook: convert numpy arrays/scalars to native Python types.
+
+    The blueprint holds numpy values (e.g. ``time_choices`` from ``random_choice_with_limit``
+    returns an ndarray, and ``timesteps``/``max_timepoint`` end up as numpy scalars), which the
+    stdlib encoder cannot serialize on its own.
+    """
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    if isinstance(o, np.integer):
+        return int(o)
+    if isinstance(o, np.floating):
+        return float(o)
+    raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
+
+
 class CellParagraphAssembler:
     """Assembles tokenized single-cell datasets into training cell paragraphs."""
 
@@ -544,7 +560,7 @@ class CellParagraphAssembler:
 
         filepath_cell_paragraph_blueprint = f"{output_directory}/{output_prefix_complete}_cell_paragraph_blueprint.json"
         with open(filepath_cell_paragraph_blueprint, "w") as fp:
-            json.dump(blueprint_dictionary, fp)
+            json.dump(blueprint_dictionary, fp, default=_json_default)
             logger.info(f"Saved cell paragraph blueprint to {filepath_cell_paragraph_blueprint}")
 
         return dataset_list, blueprint_dictionary
@@ -588,7 +604,7 @@ class CellParagraphAssembler:
         os.makedirs(output_directory, exist_ok=True)
 
         with open(f"{output_directory}/{output_prefix}_time_dictionary.json", "w") as fp:
-            json.dump({str(k): v for k, v in token_dictionary.items()}, fp)
+            json.dump({str(k): v for k, v in token_dictionary.items()}, fp, default=_json_default)
 
         return token_dictionary
 

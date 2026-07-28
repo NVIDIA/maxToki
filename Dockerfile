@@ -111,7 +111,7 @@ rm -rf nvidia-resiliency-ext/
 sed -i "/ngcsdk/d" ./sub-packages/bionemo-core/pyproject.toml
 uv pip install --no-build-isolation \
 "nemo_toolkit[llm]==${NEMO_VERSION}" \
-./3rdparty/*  \
+./3rdparty/Megatron-LM  \
 ./sub-packages/bionemo-core \
 ./sub-packages/bionemo-llm \
 ./sub-packages/bionemo-maxtoki \
@@ -212,7 +212,7 @@ RUN <<EOF
 set -eo pipefail
 find . -name __pycache__ -type d -print | xargs rm -rf
 uv pip install --no-build-isolation --editable ./internal/infra-bionemo
-for sub in ./3rdparty/* \
+for sub in ./3rdparty/Megatron-LM \
            ./sub-packages/bionemo-core \
            ./sub-packages/bionemo-llm \
            ./sub-packages/bionemo-maxtoki \

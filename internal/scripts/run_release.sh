@@ -48,7 +48,7 @@ NGC_CLI_FORMAT_TYPE="${NGC_CLI_FORMAT_TYPE:-ascii}"
 
 DATA_MOUNT=""
 if [ -d "/data" ]; then
-    DATA_MOUNT="-v /data:/home/ubuntu/data"
+    DATA_MOUNT="-v /data:/home/ubuntu/data -v /data2:/root/data"
 fi
 
 # ── Run ──────────────────────────────────────────────────────────────────────

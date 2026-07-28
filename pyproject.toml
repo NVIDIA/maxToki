@@ -28,6 +28,9 @@ build = ['flash-attn', 'pip']
 
 [tool.uv.workspace]
 members = ["3rdparty/*", "internal/infra-bionemo/", "sub-packages/bionemo-core", "sub-packages/bionemo-llm", "sub-packages/bionemo-maxtoki", "sub-packages/bionemo-testing"]
+# Only Megatron-LM is an intended 3rdparty member. A stray 3rdparty/NeMo clone (package
+# nemo_toolkit) would otherwise be globbed in and break `uv pip install` of bionemo-llm.
+exclude = ["3rdparty/NeMo"]
 
 [tool.uv.sources]
 # external
