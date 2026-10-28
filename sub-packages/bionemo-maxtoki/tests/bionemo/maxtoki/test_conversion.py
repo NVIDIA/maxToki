@@ -192,9 +192,7 @@ def test_hf_to_bionemo_conversion(tmp_path):
         f"--limit-val-batches 1 "
         f"--micro-batch-size 2 "
         f"--num-dataset-workers 0 "
-        f"--precision bf16-mixed "
-        f"--output-weights separate "
-        f"--rope-scale-factor 1.0"
+        f"--precision fp32"
     )
     run_command_in_subprocess(cmd, str(tmp_path))
 
@@ -209,5 +207,6 @@ def test_hf_to_bionemo_conversion(tmp_path):
     _convert_bionemo_to_hf(import_ckpt, hf_reimport_output, tmp_path)
 
     # Step 5: Compare HF B (from original pretrain) vs HF D (from re-imported BioNeMo).
-    # import_hf runs 1 training step, so a small logit difference is expected; threshold is generous.
-    _compare_hf_logits(hf_output, hf_reimport_output, mae_threshold=1.0)
+    # import_hf runs one zero-lr step in fp32, so the weights round-trip exactly. A loose threshold here once let a
+    # checkpoint holding the random initialisation pass.
+    _compare_hf_logits(hf_output, hf_reimport_output)

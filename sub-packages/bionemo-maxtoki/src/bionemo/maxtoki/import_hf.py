@@ -15,6 +15,7 @@
 
 import argparse
 import json
+import math
 
 from functools import partial
 from pathlib import Path
@@ -29,8 +30,9 @@ from nemo.collections.llm.gpt.model.base import default_layer_spec
 from nemo.lightning import resume, teardown
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
+from nemo.utils import logging
 
-from bionemo.core.utils.dtypes import PrecisionTypes
+from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.maxtoki.datamodule import MaxTokiDataModule
 from bionemo.maxtoki.model import (
     MaxTokiConfig,
@@ -46,6 +48,29 @@ from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_log
 
 
 __all__: Sequence[str] = ("get_parser", "main")
+
+
+def resolve_rms_norm_eps(hf_config: dict, rms_norm_eps: Optional[float] = None) -> float:
+    """Return the RMSNorm epsilon to use for the imported model.
+
+    The epsilon differs between MaxToki lineages (HF-trained models use 1e-6, BioNeMo-trained models 1e-5), so it
+    cannot be pinned here. It is read from the raw ``config.json`` rather than the parsed config because
+    transformers silently fills in 1e-6 when the key is missing, which hides a hand-written or stand-in config.
+    ``rms_norm_eps`` overrides the config value.
+    """
+    config_eps = hf_config.get("rms_norm_eps")
+    if rms_norm_eps is not None:
+        if config_eps is not None and not math.isclose(config_eps, rms_norm_eps, rel_tol=1e-9):
+            logging.warning(
+                f"Overriding config.json rms_norm_eps={config_eps!r} with --rms-norm-eps={rms_norm_eps!r}."
+            )
+        return rms_norm_eps
+    if config_eps is None:
+        raise ValueError(
+            "The HF config.json has no 'rms_norm_eps' key. Pass --rms-norm-eps with the epsilon the model was trained "
+            "with (1e-6 for HF-trained MaxToki models, 1e-5 for models trained in BioNeMo)."
+        )
+    return config_eps
 
 
 def main(
@@ -90,6 +115,7 @@ def main(
     tensor_model_parallel_size: int = 1,
     pipeline_model_parallel_size: int = 1,
     timelapse_loss: Literal["mse", "ce"] = "ce",
+    rms_norm_eps: Optional[float] = None,
 ) -> None:
     """Imports a huggingface model to NeMo format by importing it, and running a single step with zero learning rate, then saving a checkpoint.
 
@@ -153,11 +179,18 @@ def main(
         freeze_params_until_key_suffix (Optional[str]): Will disable grads for all parameters in the model parameter list until the key suffix is reached.
             For example, if the key suffix is "decoder.layers", then all parameters in the model parameter list will be frozen until a parameter name ends with "decoder.layers".
             Often parameters will have various levels of module nesting, such as "module.module.module.decoder.layers.0.weight", using the suffix allows for a more general pattern.
+        rms_norm_eps (Optional[float]): RMSNorm epsilon override. Defaults to the value in the HF config.json.
     """
     # Create the result directory if it does not exist.
     if wandb_tags is None:
         wandb_tags = []
     result_dir.mkdir(parents=True, exist_ok=True)
+    # The HF weights are loaded by a model_transform after the optimizer has been built. With reduced precision the
+    # optimizer holds fp32 master copies of the freshly initialised weights and the zero-lr step copies them back, so
+    # the saved checkpoint would contain the initialisation instead of the HF weights.
+    if get_autocast_dtype(precision) != torch.float32:
+        logging.warning(f"import_hf always converts in fp32; ignoring --precision {precision}.")
+        precision = "fp32"
     val_check_interval = min(val_check_interval, num_steps)  # Training will fail if val_check_interval > num_steps
 
     # Setup the strategy and trainer
@@ -301,7 +334,7 @@ def main(
         metric_kwargs = {}
 
     # Instantiate the model config from the HF model config.
-    hf_config = HFMaxTokiImporter.config(hf_model_path, tokenizer.vocab_size)
+    hf_config = HFMaxTokiImporter.config(hf_model_path, tokenizer.vocab_size, rms_norm_eps=rms_norm_eps)
     # Create the actual lightning object.
     model = HFMaxTokiImporter.init(hf_config, data.tokenizer, tokenizer.vocab_size)
 
@@ -528,7 +561,7 @@ class HFMaxTokiImporter:  # io.ModelConnector["LlamaForCausalLM", MaxTokiConfig]
         return target
 
     @staticmethod
-    def config(hf_model_path, vocab_size) -> MaxTokiConfig:
+    def config(hf_model_path, vocab_size, rms_norm_eps: Optional[float] = None) -> MaxTokiConfig:
         """Create a NeMo LlamaConfig from the HF model config.
 
         Translates the HF configuration parameters to the equivalent NeMo
@@ -537,9 +570,11 @@ class HFMaxTokiImporter:  # io.ModelConnector["LlamaForCausalLM", MaxTokiConfig]
         Returns:
             LlamaConfig: NeMo configuration for Llama models
         """
-        from transformers import AutoConfig
+        from transformers import AutoConfig, PretrainedConfig
 
         source = AutoConfig.from_pretrained(str(hf_model_path))
+        layernorm_epsilon = resolve_rms_norm_eps(PretrainedConfig.get_config_dict(str(hf_model_path))[0], rms_norm_eps)
+        logging.info(f"Imported model layernorm_epsilon={layernorm_epsilon!r}")
 
         # RoPE: HF rope_scaling may be null; original_context_len should match max_position_embeddings.
         # There is no rope_type in the HF model at the moment, so the rope_type check will not match.
@@ -560,22 +595,18 @@ class HFMaxTokiImporter:  # io.ModelConnector["LlamaForCausalLM", MaxTokiConfig]
             ),
             num_attention_heads=source.num_attention_heads,
             init_method_std=source.initializer_range,
-            layernorm_epsilon=source.rms_norm_eps,
+            layernorm_epsilon=layernorm_epsilon,
             num_query_groups=source.num_key_value_heads,
             seq_length=source.max_position_embeddings,
             rotary_base=source.rope_theta,
             gated_linear_unit=True,
             make_vocab_size_divisible_by=True,
             share_embeddings_and_output_weights=getattr(source, "tie_word_embeddings", False),
-            # Could be useful for changing dtype, but we got good results with bf16 from fp32.
-            # fp16=(dtype_from_hf(source) == torch.float16),
-            # bf16=(dtype_from_hf(source) == torch.bfloat16),
-            # params_dtype=dtype_from_hf(source),
-            # autocast_dtype=dtype_from_hf(source),
+            # The import always runs in fp32 (see main); the inference precision is chosen by predict.
             fp16=False,
-            bf16=True,
-            params_dtype=torch.bfloat16,
-            autocast_dtype=torch.bfloat16,
+            bf16=False,
+            params_dtype=torch.float32,
+            autocast_dtype=torch.float32,
             vocab_size=vocab_size,
             kv_channels=getattr(source, "head_dim", None),
             # This sets the attention backend, but the transformer_layer_spec sets the actual backend.
@@ -640,8 +671,8 @@ def get_parser():
         type=str,
         choices=get_args(PrecisionTypes),
         required=False,
-        default="bf16-mixed",
-        help="Precision type to use for training.",
+        default="fp32",
+        help="Ignored: the import always runs in fp32. Choose the inference precision with predict --precision.",
     )
     parser.add_argument(
         "--lr",
@@ -910,7 +941,13 @@ def get_parser():
         default=1,
         help="Pipeline model parallel size.",
     )
-    parser.add_argument("--rope-scale-factor", type=float, required=True, default=8.0, help="Rope scaling factor.")
+    parser.add_argument(
+        "--rope-scale-factor",
+        type=float,
+        required=False,
+        default=None,
+        help="Ignored. The RoPE scaling is taken from the HF config (imports require rope_scaling=null, i.e. 1.0).",
+    )
     parser.add_argument(
         "--non-numeric-token-regression-penalty",
         type=float,
@@ -936,9 +973,9 @@ def get_parser():
     parser.add_argument(
         "--output-weights",
         choices=["tied", "separate"],
-        required=True,
-        default="tied",
-        help="Whether to share the embeddings and output weights. Tied means the embedding and output weights are shared. Separate means new and separate parameters are used for the model outputs.",
+        required=False,
+        default=None,
+        help="Ignored. Weight tying is taken from tie_word_embeddings in the HF config.",
     )
     parser.add_argument(
         "--initial-ckpt-skip-keys-with-these-prefixes",
@@ -963,6 +1000,14 @@ def get_parser():
         type=Path,
         required=True,
         help="Path to the HuggingFace model to load weights and config into the model.",
+    )
+    parser.add_argument(
+        "--rms-norm-eps",
+        type=float,
+        required=False,
+        default=None,
+        help="RMSNorm epsilon of the imported model. Defaults to rms_norm_eps from the HF config.json; required if "
+        "the config does not set it. HF-trained MaxToki models use 1e-6, BioNeMo-trained models 1e-5.",
     )
     return parser
 
@@ -1020,6 +1065,7 @@ def entrypoint():
         label_scalar=args.label_scalar,
         timelapse_loss=args.timelapse_loss,
         hf_model_path=args.hf_model_path,
+        rms_norm_eps=args.rms_norm_eps,
     )
 
 

@@ -289,6 +289,7 @@ Arguments common to both modes:
 | `--seq-length` | 4096 | Must be at least as long as the longest sequence in the dataset. |
 | `--micro-batch-size` | 1 | Per-GPU batch size. |
 | `--precision` | `bf16-mixed` | Precision type. |
+| `--rope-scaling-factor` | from checkpoint | Llama3 RoPE scaling factor (`scale_factor`) applied at inference. By default the value saved in the checkpoint is used (the `--rope-scaling-factor` it was trained with, or `1.0` for HF imports with `rope_scaling=null`). Pass a value to override it; `1.0` disables scaling. The other RoPE settings (`old_context_len`, `low_freq_factor`, `high_freq_factor`) always come from the checkpoint. |
 | `--num-gpus` | 1 | Number of GPUs. |
 | `--write-interval` | `epoch` | Write predictions at the end of the epoch (`epoch`) or after each batch (`batch`). |
 | `--limit-predict-batches-to-n` | all | Stop after N batches; useful for testing. |
@@ -344,29 +345,74 @@ python -m bionemo.maxtoki.import_hf \
     --train-data-path /path/to/train \
     --val-data-path /path/to/val \
     --test-data-path /path/to/test \
-    --tokenizer-path /path/to/token_dictionary.pkl \
+    --tokenizer-path /path/to/token_dictionary.json \
     --result-dir ./converted_bionemo \
+    --seq-length 4096 \
     --num-gpus 1
 ```
+
+The architecture, weight tying (`tie_word_embeddings`) and RoPE settings all come from the HF `config.json`;
+`--rope-scale-factor` and `--output-weights` are accepted for backwards compatibility but ignored. `--seq-length`
+only sizes the batches for the single zero-learning-rate step, so a short value keeps memory down; the saved
+checkpoint takes its `seq_length` from `max_position_embeddings`.
+
+The RMSNorm epsilon is read from `rms_norm_eps` in the HF `config.json`; it is logged as
+`Imported model layernorm_epsilon=...`. Unlike the regression importer below, it is not pinned, because the
+value differs by lineage: HF-trained MaxToki models use `1e-6`, models trained in BioNeMo (and exported with
+`export_hf`) use `1e-5`. If the config has no `rms_norm_eps` key the import fails instead of falling back to the
+transformers default; pass `--rms-norm-eps` to set it explicitly (this also overrides a config value, with a
+warning).
 
 ### HuggingFace regression model to BioNeMo
 
 The `import_hf` path above handles a plain `LlamaForCausalLM` (headless regression). A model
 trained with the HuggingFace code that carries an **explicit regression head** is a custom
 wrapper instead: a Llama backbone under the `cf.` state-dict prefix (`cf.model.*`,
-`cf.lm_head.weight`) plus a `linear1` = `Linear(hidden, 1)` head, and it ships without a
-`config.json`. Use `import_regression_hf` for it: it reads the safetensors directly, strips the
+`cf.lm_head.weight`) plus a `linear1` = `Linear(hidden, 1)` head, since it ships without a
+`config.json`. Use `import_regression_hf`: this reads the safetensors directly, stripping the
 `cf.` prefix, reuses the standard backbone mapping, and maps `linear1.* -> regression_head.linear_fc2.*`
-on `FinetuneLlamaModel`. The backbone hyperparameters it cannot infer from weight shapes (head
+on `FinetuneLlamaModel`. The hyperparameters than cannot be infered from weight shapes (head
 count, RoPE base, norm epsilon) come from a matching Llama `config.json` passed via `--hf-config`
-(e.g. `MaxToki-217M-HF/config.json` from the hub); the vocab size is read from the checkpoint.
+(e.g. `MaxToki-217M-HF/config.json` from the hub). 
 
 The import runs in fp32 with the distributed optimizer disabled so the converted weights are
 written to the checkpoint verbatim, and runs its single throwaway step on short sequences
 (`--compute-seq-length`) while baking the full `--seq-length` into the saved config.
 
-RoPE is taken from the `--hf-config` `rope_scaling` block, not assumed: a `llama3` block maps to its
-`factor` and `original_max_position_embeddings`; a `null`/absent block means standard RoPE (no
+Converted regression models are supported for **conversion and inference** (`predict --regression-head`).
+Finetuning them is not supported: `train.py --use-finetuning-config` builds a model without the
+regression head, so the head is dropped and the result can no longer be used with `--regression-head`.
+
+##### Norm epsilon comes from `--rms-norm-eps`, not `--hf-config`
+
+**The importer takes the epsilon from `--rms-norm-eps` and ignores `rms_norm_eps` in `--hf-config`.**
+It defaults to `1e-6`, the value the HF MaxToki models were actually trained with (`MAXTOKI_RMS_NORM_EPS`
+in `import_regression_hf.py`). If the supplied config disagrees, it logs a warning and uses
+`--rms-norm-eps`.
+
+This exists because the trained checkpoints **ship without a `config.json`**, so `--hf-config` is
+normally a stand-in, hand-written, or borrowed from a sibling model. A stand-in that carries the
+Llama default of `1e-5` produces an incorrect conversion. That epsilon is then baked into the saved checkpoint. Although this is an incorrect conversion, the
+symptom is mild enough for predictions stay ~99.99% correlated with the reference.
+
+| `rms_norm_eps` | MAE vs reference (fp32) | max abs | Pearson |
+|---|---|---|---|
+| `1e-5` (Llama default) | 2.21 months | 13.4 | 0.99995 |
+| **`1e-6` (correct, default)** | **0.0008 months** | **0.18** | **1.000000** |
+
+Because the value is baked in at conversion time, a checkpoint converted with the wrong epsilon
+cannot be repaired by fixing the config afterwards — it must be re-converted. Note also that editing
+`context/model.yaml` in an existing checkpoint does **not** work: `context/io.json` is the config NeMo
+rebuilds the model from, and `model.yaml` is informational.
+
+For a model trained with a different epsilon, pass it explicitly, e.g. `--rms-norm-eps 1e-5`.
+
+The importer also logs every derived backbone hyperparameter (layers, hidden, ffn, heads, kv
+channels, vocab, `rotary_base`, `layernorm_epsilon`) at INFO, so a bad `--hf-config` is visible in the
+run log.
+
+RoPE is taken from the `--hf-config` `rope_scaling` config argument. `llama3` block maps to its
+`factor` and `original_max_position_embeddings`, an empty config argument means standard RoPE (no
 scaling), which is what the HF MaxToki models use — they handle the extended temporal context by
 extrapolation rather than the llama3 scaling that the BioNeMo `train.py` finetune applies
 (`--rope-scaling-factor`). Use an `--hf-config` whose `rope_theta`/`rope_scaling` match the trained
@@ -430,8 +476,10 @@ python -m bionemo.maxtoki.verify_regression \
     --reference /path/to/reference_predictions.pickle
 ```
 
-On the held-out aging set this reports Pearson ≈ 0.99999 vs the HuggingFace predictions (MAE ≈ 1–3
-in months; the small residual is bf16 prediction vs the fp32 reference).
+Run the predictions for this check with `--precision fp32`. On the held-out aging set a correct conversion then
+reports MAE ≈ 0.001 (months) and Pearson 1.0 vs the HuggingFace predictions, and the default `--mae-threshold`
+(0.05) is enforced. bf16 predictions of a correct conversion land at MAE ≈ 1.2, which is too close to a
+wrong-epsilon conversion (≈ 2.2) to tell the two apart, so a bf16 comparison is not a conversion check.
 
 For a copy-pasteable end-to-end runner (subset `time` rows → convert → predict → verify, with all
 paths spelled out), see `run-maxtoki-regression-verify.sh` in the repo root.

@@ -36,6 +36,7 @@ from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.utils.exp_manager import TimingCallback
 
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
+from bionemo.maxtoki.callbacks import WeightSetupGuard
 from bionemo.maxtoki.datamodule import MaxTokiDataModule
 from bionemo.maxtoki.model import (
     MaxTokiConfig,
@@ -241,6 +242,7 @@ def main(
         RichModelSummary(max_depth=4),
         TimingCallback(),
         LearningRateMonitor(),
+        WeightSetupGuard(),
     ]
 
     if gc_interval > 0:

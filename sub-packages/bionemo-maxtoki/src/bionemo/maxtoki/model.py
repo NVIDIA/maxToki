@@ -1229,7 +1229,8 @@ def maxtoki_regression_predict_step(
     if "attention_mask" not in batch:
         batch["attention_mask"] = None
 
-    outputs = model.forward_step(batch)
+    # With labels the LM output is the per-token loss rather than logits, which timelapse_token_preds needs.
+    outputs = model.forward_step({k: v for k, v in batch.items() if k != "labels"})
 
     # FinetuneLlamaModel returns regression_outputs with shape [seq_len, batch, 1].
     regression_outputs = outputs["regression_outputs"].squeeze(-1)  # [S, B]

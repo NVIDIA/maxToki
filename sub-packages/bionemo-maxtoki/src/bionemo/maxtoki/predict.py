@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import argparse
+import dataclasses
 import json
 import tempfile
 from functools import partial
@@ -49,6 +50,23 @@ from bionemo.maxtoki.tokenizer import MaxTokiTokenizer
 __all__: Sequence[str] = ("get_parser", "predict")
 
 
+def rope_scaling_config_kwargs(config_class: type, rope_scaling_factor: Optional[float]) -> dict:
+    """Config kwargs that control where the RoPE `scale_factor` comes from at inference time.
+
+    `MaxTokiMultitaskFineTuneConfig` lists `scale_factor` in `override_parent_fields` so that training can change it
+    when starting from a checkpoint. Left as-is at inference, the checkpoint value is ignored and the class default
+    (8.0) is applied instead. With `rope_scaling_factor=None` the value saved in the checkpoint is used; otherwise the
+    given value overrides it.
+    """
+    default_overrides = next(
+        f for f in dataclasses.fields(config_class) if f.name == "override_parent_fields"
+    ).default_factory()
+    overrides = [name for name in default_overrides if name != "scale_factor"]
+    if rope_scaling_factor is None:
+        return {"override_parent_fields": overrides}
+    return {"override_parent_fields": [*overrides, "scale_factor"], "scale_factor": rope_scaling_factor}
+
+
 def predict(
     ckpt_dir: str,
     output_dir: Path,
@@ -81,6 +99,7 @@ def predict(
     regression_head: bool = False,
     label_scalar: float = 1.0,
     eoq_token_id: Optional[int] = None,
+    rope_scaling_factor: Optional[float] = None,
 ):
     if work_dir is None:
         work_dir = Path(tempfile.mkdtemp())
@@ -112,7 +131,7 @@ def predict(
             tensor_model_parallel_size=tensor_parallel_size,
             pipeline_model_parallel_size=pipeline_model_parallel_size,
             context_parallel_size=context_parallel_size,
-            pipeline_dtype=torch.bfloat16,
+            pipeline_dtype=get_autocast_dtype(precision),
             ckpt_load_optimizer=False,  # Needs to be false for a normal model checkpoint.
             ckpt_save_optimizer=False,
             ckpt_async_save=False,
@@ -141,7 +160,7 @@ def predict(
             PredictTimingCallback(log_tokens_per_sec=True, show_batch_progress=not generate_next_cell),
         ],
         plugins=nl.MegatronMixedPrecision(
-            precision="bf16-mixed",
+            precision=precision,
         ),
     )
 
@@ -149,6 +168,7 @@ def predict(
     # from the checkpoint, so we must NOT skip the regression_head prefix.
     config_class = MaxTokiFineTuneConfig if regression_head else MaxTokiMultitaskFineTuneConfig
     extra_config_kwargs = {"initial_ckpt_skip_keys_with_these_prefixes": []} if regression_head else {}
+    extra_config_kwargs.update(rope_scaling_config_kwargs(config_class, rope_scaling_factor))
     config = config_class(
         # I think these can basically all use defaults because we load them from the underlying checkpoint
         initial_ckpt_path=ckpt_dir,
@@ -465,6 +485,14 @@ def get_parser():
         help="Token id of <eoq> at which the regression head is read. Defaults to the tokenizer's "
         "<eoq>. Only used with --regression-head.",
     )
+    parser.add_argument(
+        "--rope-scaling-factor",
+        type=float,
+        required=False,
+        default=None,
+        help="Llama3 RoPE scaling factor (config `scale_factor`) to apply at inference. Defaults to the value saved "
+        "in the checkpoint. Set to 1.0 to disable scaling.",
+    )
     return parser
 
 
@@ -501,6 +529,7 @@ def entrypoint():
         regression_head=args.regression_head,
         label_scalar=args.label_scalar,
         eoq_token_id=args.eoq_token_id,
+        rope_scaling_factor=args.rope_scaling_factor,
     )
 
 
